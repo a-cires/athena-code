@@ -14,6 +14,8 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
   rclcpp
   rclcpp_lifecycle
   realtime_tools
+  sensor_msgs
+  std_msgs
   std_srvs
 )
 
@@ -38,11 +40,17 @@ generate_parameter_library(manual_arm_joint_by_joint_controller_parameters
   include/athena_arm_controllers/validate_athena_arm_controller_parameters.hpp
 )
 
+generate_parameter_library(autonomous_typing_controller_parameters
+  config/autonomous_typing_controller.yaml
+  include/athena_arm_controllers/validate_athena_arm_controller_parameters.hpp
+)
+
 add_library(
   arm_controllers
   SHARED
   src/manual_arm_cylindrical_controller.cpp
   src/manual_arm_joint_by_joint_controller.cpp
+  src/autonomous_typing_controller.cpp
   src/velocity_calculations.cpp
 )
 target_include_directories(arm_controllers PUBLIC
@@ -50,6 +58,7 @@ target_include_directories(arm_controllers PUBLIC
   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
 target_link_libraries(arm_controllers manual_arm_cylindrical_controller_parameters)
 target_link_libraries(arm_controllers manual_arm_joint_by_joint_controller_parameters)
+target_link_libraries(arm_controllers autonomous_typing_controller_parameters)
 ament_target_dependencies(arm_controllers ${THIS_PACKAGE_INCLUDE_DEPENDS})
 target_compile_definitions(arm_controllers PRIVATE "manual_arm_cylindrical_controller_BUILDING_DLL")
 
