@@ -15,3 +15,12 @@
   </description>
   </class>
 </library>
+
+<library path="arm_controllers">
+  <class name="arm_controllers/AutonomousTypingController"
+         type="arm_controllers::AutonomousTypingController" base_class_type="controller_interface::ControllerInterface">
+  <description>
+    Autonomous typing controller for athena arm - enables programmatic keyboard typing.
+  </description>
+  </class>
+</library>

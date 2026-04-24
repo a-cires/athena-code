@@ -1,0 +1,80 @@
+# Copyright (c) 2025, UMDLoop
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+autonomous_typing_controller:
+  position_joints: {
+    type: string_array,
+    default_value: ["wrist_roll", "actuator"],
+    description: "Joints controlled via position interface (wrist_roll for theta, actuator for key press).",
+    read_only: true,
+    validation: {
+      unique<>: null,
+      not_empty<>: null,
+    }
+  }
+  velocity_joints: {
+    type: string_array,
+    default_value: ["base_yaw", "wrist_pitch", "gripper_claw"],
+    description: "Joints controlled via velocity interface (gripper_claw for radial extension, others held at zero).",
+    read_only: true,
+    validation: {
+      unique<>: null,
+      not_empty<>: null,
+    }
+  }
+  max_joint_velocities: {
+    type: double_array,
+    default_value: [5.0, 10.0, 0.01],
+    description: "Maximum velocities for each velocity joint in rad/s or m/s. Order matches velocity_joints.",
+    read_only: true,
+    validation: {
+      not_empty<>: null,
+    }
+  }
+  key_press_duration: {
+    type: double,
+    default_value: 0.1,
+    description: "Duration in seconds to hold a key press before releasing.",
+    read_only: false,
+    validation: {
+      gt<>: [0.0],
+    }
+  }
+  position_tolerance: {
+    type: double,
+    default_value: 0.01,
+    description: "Tolerance in rad or meters for considering a position target reached.",
+    read_only: false,
+    validation: {
+      gt<>: [0.0],
+    }
+  }
+  gripper_kp: {
+    type: double,
+    default_value: 5.0,
+    description: "Proportional gain for gripper claw velocity P-controller.",
+    read_only: false,
+    validation: {
+      gt<>: [0.0],
+    }
+  }
+  actuator_press_depth: {
+    type: double,
+    default_value: 0.005,
+    description: "Depth in meters the actuator pushes down to press a key.",
+    read_only: false,
+    validation: {
+      gt<>: [0.0],
+    }
+  }
