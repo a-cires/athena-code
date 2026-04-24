@@ -73,6 +73,7 @@ private:
   int num_joints;
 
   // State interfaces
+  std::vector<double> joint_state_position_;
   std::vector<double> joint_state_velocity_;
 
   // Command interfaces
@@ -88,6 +89,7 @@ private:
   // Per-joint parameters
   std::vector<uint32_t> joint_can_ids;       // CAN arbitration ID per joint (the XXX)
   std::vector<double> joint_max_velocity;    // Max velocity in rad/s per joint
+  std::vector<double> lead_screw_pitch;      // Lead screw pitch in meters per revolution
 
   // CAN Protocol Constants
   // Frame format: 3 bytes — [CMD_BYTE, SPEED_LOW, SPEED_HIGH]
