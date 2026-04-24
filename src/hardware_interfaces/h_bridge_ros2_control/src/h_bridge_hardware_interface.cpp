@@ -36,6 +36,14 @@ hardware_interface::CallbackReturn HBridgeHardwareInterface::on_init(
     // Maximum joint velocity in rad/s — used to scale command [-1, 1] → [-32768, 32767]
     joint_max_velocity.push_back(
       std::abs(std::stod(joint.parameters.at("max_velocity"))));
+
+    // Lead screw pitch in meters per revolution (default 0.002 m = 2 mm)
+    if (joint.parameters.count("lead_screw_pitch")) {
+      lead_screw_pitch.push_back(
+        std::abs(std::stod(joint.parameters.at("lead_screw_pitch"))));
+    } else {
+      lead_screw_pitch.push_back(0.002);
+    }
   }
 
   num_joints = static_cast<int>(info_.joints.size());
@@ -49,6 +57,7 @@ hardware_interface::CallbackReturn HBridgeHardwareInterface::on_init(
   elapsed_logger_time = 0.0;
 
   // Initialize state and command vectors
+  joint_state_position_.assign(num_joints, 0.0);
   joint_state_velocity_.assign(num_joints, 0.0);
   joint_command_velocity_.assign(num_joints, 0.0);
   prev_joint_command_velocity_.assign(num_joints, 0.0);
@@ -82,6 +91,9 @@ hardware_interface::CallbackReturn HBridgeHardwareInterface::on_activate(
   // Zero all motor commands on activation
   joint_command_velocity_.assign(num_joints, 0.0);
   prev_joint_command_velocity_.assign(num_joints, 0.0);
+
+  // Reset position estimate (assumes actuator starts at home)
+  joint_state_position_.assign(num_joints, 0.0);
 
   RCLCPP_INFO(rclcpp::get_logger("HBridgeHardwareInterface"), "Successfully activated!");
   return hardware_interface::CallbackReturn::SUCCESS;
@@ -149,6 +161,9 @@ HBridgeHardwareInterface::export_state_interfaces()
 
   for (int i = 0; i < num_joints; i++) {
     state_interfaces.emplace_back(hardware_interface::StateInterface(
+      info_.joints[i].name, hardware_interface::HW_IF_POSITION, &joint_state_position_[i]));
+
+    state_interfaces.emplace_back(hardware_interface::StateInterface(
       info_.joints[i].name, hardware_interface::HW_IF_VELOCITY, &joint_state_velocity_[i]));
   }
 
@@ -184,12 +199,18 @@ void HBridgeHardwareInterface::on_can_message(const CANLib::CanFrame & frame)
 // ─── Read / Write ────────────────────────────────────────────────────────────
 
 hardware_interface::return_type HBridgeHardwareInterface::read(
-  const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
+  const rclcpp::Time & /*time*/, const rclcpp::Duration & period)
 {
   // H-Bridge is open-loop velocity; state mirrors the last command sent.
   // Replace with actual CAN feedback once the PCB supports it.
   for (int i = 0; i < num_joints; i++) {
     joint_state_velocity_[i] = joint_command_velocity_[i];
+
+    // Integrate position from velocity via lead screw kinematics:
+    //   linear_velocity = (angular_velocity / 2π) * pitch
+    //   position += linear_velocity * dt
+    double linear_velocity = (joint_state_velocity_[i] / (2.0 * M_PI)) * lead_screw_pitch[i];
+    joint_state_position_[i] += linear_velocity * period.seconds();
   }
 
   return hardware_interface::return_type::OK;
@@ -270,9 +291,11 @@ void HBridgeHardwareInterface::logger_function()
   for (int i = 0; i < num_joints; i++) {
     oss << "\nJOINT: " << info_.joints[i].name << "\n"
         << "Parameters: CAN ID: 0x" << std::hex << std::uppercase << joint_can_ids[i]
-        << " | Max Velocity: " << std::dec << joint_max_velocity[i] << " rad/s\n"
+        << " | Max Velocity: " << std::dec << joint_max_velocity[i] << " rad/s"
+        << " | Lead Screw Pitch: " << lead_screw_pitch[i] << " m/rev\n"
         << "Command Velocity: " << joint_command_velocity_[i]
-        << " | State Velocity: " << joint_state_velocity_[i] << "\n";
+        << " | State Velocity: " << joint_state_velocity_[i]
+        << " | State Position: " << joint_state_position_[i] << " m\n";
   }
 
   RCLCPP_INFO(rclcpp::get_logger("HBridgeHardwareInterface"), "%s", oss.str().c_str());
