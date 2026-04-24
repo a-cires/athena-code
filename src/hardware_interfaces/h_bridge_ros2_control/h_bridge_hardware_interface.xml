@@ -1,0 +1,9 @@
+<library path="h_bridge_ros2_control">
+  <class name="h_bridge_ros2_control/HBridgeHardwareInterface"
+         type="h_bridge_ros2_control::HBridgeHardwareInterface"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>
+      UMDLoop's ros2_control plugin for the custom H-Bridge brushed DC motor controller PCB
+    </description>
+  </class>
+</library>
