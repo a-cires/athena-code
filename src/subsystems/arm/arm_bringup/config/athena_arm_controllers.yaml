@@ -141,18 +141,27 @@ motor_status_broadcaster:
 
 autonomous_typing_controller:
   ros__parameters:
-    position_joints:
+    position_only_joints: []
+    velocity_only_joints:
+      - gripper_claw
+    dual_joints:
       - wrist_roll
       - actuator
-    velocity_joints:
       - base_yaw
       - wrist_pitch
-      - gripper_claw
     max_joint_velocities:
-      - 0.08        # base_yaw (held at 0)
-      - 0.785398    # wrist_pitch (held at 0)
-      - 0.005       # gripper_claw (radial extension)
+      # Order: position_only, velocity_only, dual
+      - 0.005       # gripper_claw
+      - 0.785398    # wrist_roll (45 dps)
+      - 0.03        # actuator
+      - 0.08        # base_yaw
+      - 0.785398    # wrist_pitch (45 dps)
+    pid_joints:
+      - gripper_claw
+      - wrist_roll
+    pid_kp: [5.0, 5.0]
+    pid_ki: [0.0, 0.0]
+    pid_kd: [0.0, 0.0]
     key_press_duration: 0.1
     position_tolerance: 0.01
-    gripper_kp: 5.0
     actuator_press_depth: 0.005

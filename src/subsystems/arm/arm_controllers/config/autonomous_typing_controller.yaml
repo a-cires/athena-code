@@ -13,35 +13,82 @@
 # limitations under the License.
 
 autonomous_typing_controller:
-  position_joints: {
+  # ── Joint categories ──────────────────────────────────────────────────────
+  # Each joint must appear in exactly one of these three lists.
+  # position_only: claims only position command interface
+  # velocity_only: claims only velocity command interface
+  # dual:          claims both position and velocity command interfaces
+  position_only_joints: {
     type: string_array,
-    default_value: ["wrist_roll", "actuator"],
-    description: "Joints controlled via position interface (wrist_roll for theta, actuator for key press).",
+    default_value: [],
+    description: "Joints that only claim a position command interface.",
+    read_only: true,
+    validation: {
+      unique<>: null,
+    }
+  }
+  velocity_only_joints: {
+    type: string_array,
+    default_value: ["gripper_claw"],
+    description: "Joints that only claim a velocity command interface.",
+    read_only: true,
+    validation: {
+      unique<>: null,
+    }
+  }
+  dual_joints: {
+    type: string_array,
+    default_value: ["wrist_roll", "actuator", "base_yaw", "wrist_pitch"],
+    description: "Joints that claim both position and velocity command interfaces.",
     read_only: true,
     validation: {
       unique<>: null,
       not_empty<>: null,
     }
   }
-  velocity_joints: {
-    type: string_array,
-    default_value: ["base_yaw", "wrist_pitch", "gripper_claw"],
-    description: "Joints controlled via velocity interface (gripper_claw for radial extension, others held at zero).",
-    read_only: true,
-    validation: {
-      unique<>: null,
-      not_empty<>: null,
-    }
-  }
+
+  # ── Max velocities ───────────────────────────────────────────────────────
+  # Order: position_only_joints, then velocity_only_joints, then dual_joints
   max_joint_velocities: {
     type: double_array,
-    default_value: [5.0, 10.0, 0.01],
-    description: "Maximum velocities for each velocity joint in rad/s or m/s. Order matches velocity_joints.",
+    default_value: [0.005, 0.08, 0.785398, 0.08, 0.785398],
+    description: "Maximum velocity for each joint in rad/s or m/s. Order: position_only, velocity_only, dual.",
     read_only: true,
     validation: {
       not_empty<>: null,
     }
   }
+
+  # ── Per-joint PID ────────────────────────────────────────────────────────
+  pid_joints: {
+    type: string_array,
+    default_value: ["gripper_claw", "wrist_roll"],
+    description: "Joints that use software PID (target position -> PID -> velocity command).",
+    read_only: true,
+    validation: {
+      unique<>: null,
+    }
+  }
+  pid_kp: {
+    type: double_array,
+    default_value: [5.0, 5.0],
+    description: "Proportional gains for PID joints. Order matches pid_joints.",
+    read_only: false,
+  }
+  pid_ki: {
+    type: double_array,
+    default_value: [0.0, 0.0],
+    description: "Integral gains for PID joints. Order matches pid_joints.",
+    read_only: false,
+  }
+  pid_kd: {
+    type: double_array,
+    default_value: [0.0, 0.0],
+    description: "Derivative gains for PID joints. Order matches pid_joints.",
+    read_only: false,
+  }
+
+  # ── Typing behavior ─────────────────────────────────────────────────────
   key_press_duration: {
     type: double,
     default_value: 0.1,
@@ -55,15 +102,6 @@ autonomous_typing_controller:
     type: double,
     default_value: 0.01,
     description: "Tolerance in rad or meters for considering a position target reached.",
-    read_only: false,
-    validation: {
-      gt<>: [0.0],
-    }
-  }
-  gripper_kp: {
-    type: double,
-    default_value: 5.0,
-    description: "Proportional gain for gripper claw velocity P-controller.",
     read_only: false,
     validation: {
       gt<>: [0.0],

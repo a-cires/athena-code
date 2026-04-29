@@ -16,8 +16,10 @@
 #ifndef ATHENA_ARM_CONTROLLERS__AUTONOMOUS_TYPING_CONTROLLER_HPP_
 #define ATHENA_ARM_CONTROLLERS__AUTONOMOUS_TYPING_CONTROLLER_HPP_
 
+#include <atomic>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "controller_interface/controller_interface.hpp"
@@ -50,19 +52,23 @@ enum class PressPhase : uint8_t
   RETRACT = 2,
 };
 
-// Command interface indices (position joints first, then velocity joints)
-static constexpr size_t CMD_WRIST_ROLL = 0;     // position
-static constexpr size_t CMD_ACTUATOR = 1;        // position
-static constexpr size_t CMD_BASE_YAW = 2;        // velocity (held at 0)
-static constexpr size_t CMD_WRIST_PITCH = 3;     // velocity (held at 0)
-static constexpr size_t CMD_GRIPPER_CLAW = 4;    // velocity
+// Per-joint command interface index info — built at configure time
+struct JointInfo {
+  std::string name;
+  int pos_cmd_idx = -1;   // index into command_interfaces_, -1 if not claimed
+  int vel_cmd_idx = -1;   // index into command_interfaces_, -1 if not claimed
+  int state_pos_idx = -1; // index into state_interfaces_
+  double max_velocity = 0.0;
+};
 
-// State interface indices (same ordering)
-static constexpr size_t STATE_WRIST_ROLL = 0;
-static constexpr size_t STATE_ACTUATOR = 1;
-static constexpr size_t STATE_BASE_YAW = 2;
-static constexpr size_t STATE_WRIST_PITCH = 3;
-static constexpr size_t STATE_GRIPPER_CLAW = 4;
+// Per-joint PID state
+struct PidState {
+  double kp = 0.0;
+  double ki = 0.0;
+  double kd = 0.0;
+  double integral = 0.0;
+  double prev_error = 0.0;
+};
 
 class AutonomousTypingController : public controller_interface::ControllerInterface
 {
@@ -103,6 +109,17 @@ protected:
   autonomous_typing_controller::Params params_;
 
   int num_joints_;
+  int num_cmd_interfaces_;
+
+  // Joint info map: joint_name -> JointInfo (built at configure time)
+  std::unordered_map<std::string, JointInfo> joint_map_;
+
+  // Ordered list of all joint names (position_only, velocity_only, dual)
+  // Used for state interface ordering
+  std::vector<std::string> all_joint_names_;
+
+  // PID state map: joint_name -> PidState (only for pid_joints)
+  std::unordered_map<std::string, PidState> pid_states_;
 
   // Current joint positions read from state interfaces
   std::vector<double> current_joint_positions_;
@@ -126,8 +143,8 @@ protected:
   std::vector<double> key_r_targets_;
   std::vector<double> key_theta_targets_;
 
-  // Track previous message to detect new commands
-  size_t prev_msg_size_;
+  // Track new messages via atomic flag (set in callback, cleared in update)
+  std::atomic<bool> new_message_received_{false};
 
   // Command subscribers and Controller State publisher
   rclcpp::Subscription<ControllerReferenceMsg>::SharedPtr ref_subscriber_ = nullptr;
@@ -137,6 +154,16 @@ protected:
 
   rclcpp::Publisher<ControllerStateMsg>::SharedPtr s_publisher_;
   std::unique_ptr<ControllerStatePublisher> state_publisher_;
+
+  // Helper: compute PID output for a joint, returns velocity command
+  double compute_pid(const std::string & joint_name, double error, double dt);
+
+  // Helper: write a command to a joint by name
+  void set_joint_position_cmd(const std::string & name, double value);
+  void set_joint_velocity_cmd(const std::string & name, double value);
+
+  // Helper: read current position of a joint by name
+  double get_joint_position(const std::string & name) const;
 
 private:
   ATHENA_ARM_CONTROLLERS__VISIBILITY_LOCAL
