@@ -9,6 +9,19 @@ from launch_ros.substitutions import FindPackageShare
 
 from moveit_configs_utils import MoveItConfigsBuilder
 
+# ── Switchable robot controllers ──────────────────────────────────────────────
+# Single source of truth: add new controllers here and they will automatically
+# appear in the launch argument choices, spawn active/inactive correctly, and
+# chain their event handlers.
+ALL_ROBOT_CONTROLLERS = [
+    "manual_arm_joint_by_joint_controller",
+    "manual_arm_cylindrical_controller",
+    "autonomous_typing_controller",
+    "joint_trajectory_controller",
+    "arm_velocity_controller",
+]
+DEFAULT_CONTROLLER = "manual_arm_joint_by_joint_controller"
+
 
 def generate_launch_description():
     declared_arguments = []
@@ -104,9 +117,9 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "robot_controller",
-            default_value="manual_arm_joint_by_joint_controller",
-            choices=["manual_arm_joint_by_joint_controller"],
-            description="Robot controller to start.",
+            default_value=DEFAULT_CONTROLLER,
+            choices=ALL_ROBOT_CONTROLLERS,
+            description="Robot controller to start active. All others spawn inactive.",
         )
     )
 
@@ -241,31 +254,24 @@ def launch_setup(context, *args, **kwargs):
         arguments=["motor_status_broadcaster", "-c", "/controller_manager"],
     )
 
-    robot_controller_names = [robot_controller]
+    # Spawn all switchable controllers: the selected one active, the rest inactive
+    active_controller = robot_controller.perform(context)
     robot_controller_spawners = []
-    for controller in robot_controller_names:
-        robot_controller_spawners += [
+    for name in ALL_ROBOT_CONTROLLERS:
+        args = [name, "-c", "/controller_manager"]
+        if name != active_controller:
+            args.append("--inactive")
+        robot_controller_spawners.append(
             Node(
                 package="controller_manager",
                 executable="spawner",
-                arguments=[controller, "-c", "/controller_manager"],
+                arguments=args,
             )
-        ]
-
-    inactive_robot_controller_names = ["manual_arm_cylindrical_controller", "joint_trajectory_controller", "arm_velocity_controller"]
-    inactive_robot_controller_spawners = []
-    for controller in inactive_robot_controller_names:
-        inactive_robot_controller_spawners += [
-            Node(
-                package="controller_manager",
-                executable="spawner",
-                arguments=[controller, "-c", "/controller_manager", "--inactive"],
-            )
-        ]
+        )
 
     controller_switcher_node = RegisterEventHandler(
         event_handler=OnProcessExit(
-            target_action=inactive_robot_controller_spawners[-1],
+            target_action=robot_controller_spawners[-1],
             on_exit=[TimerAction(
                 period=3.0,
                 actions=[Node(
@@ -306,7 +312,7 @@ def launch_setup(context, *args, **kwargs):
 
     delay_robot_controller_spawners_after_joint_state_broadcaster_spawner = []
     for i, controller in enumerate(robot_controller_spawners):
-        delay_robot_controller_spawners_after_joint_state_broadcaster_spawner += [
+        delay_robot_controller_spawners_after_joint_state_broadcaster_spawner.append(
             RegisterEventHandler(
                 event_handler=OnProcessExit(
                     target_action=(
@@ -317,22 +323,7 @@ def launch_setup(context, *args, **kwargs):
                     on_exit=[controller],
                 )
             )
-        ]
-
-    delay_inactive_robot_controller_spawners_after_joint_state_broadcaster_spawner = []
-    for i, controller in enumerate(inactive_robot_controller_spawners):
-        delay_inactive_robot_controller_spawners_after_joint_state_broadcaster_spawner += [
-            RegisterEventHandler(
-                event_handler=OnProcessExit(
-                    target_action=(
-                        inactive_robot_controller_spawners[i - 1]
-                        if i > 0
-                        else robot_controller_spawners[-1]
-                    ),
-                    on_exit=[controller],
-                )
-            )
-        ]
+        )
 
     jetson_actions = [
         control_node,
@@ -341,8 +332,7 @@ def launch_setup(context, *args, **kwargs):
         delay_motor_status_broadcaster_after_joint_state_broadcaster,
         delay_rviz_after_joint_state_broadcaster_spawner,
         controller_switcher_node,
-    ] + delay_robot_controller_spawners_after_joint_state_broadcaster_spawner \
-      + delay_inactive_robot_controller_spawners_after_joint_state_broadcaster_spawner
+    ] + delay_robot_controller_spawners_after_joint_state_broadcaster_spawner
 
     base_station_actions = [
         joystick_publisher,
