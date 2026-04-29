@@ -1,0 +1,221 @@
+# Key layout configuration for autonomous typing.
+#
+# Key positions are specified in Cartesian coordinates (mm) from the keyboard
+# measurements CSV. The node converts these to polar coordinates at startup
+# using the configured origin point.
+#
+# Origin: the arm's wrist pivot point projected onto the keyboard plane.
+# TODO: Calibrate origin.x and origin.y to match the physical arm mounting.
+#
+# The three arrays (keys, x_positions, y_positions) must be parallel:
+#   keys[i] is at (x_positions[i], y_positions[i]).
+#
+# The autonomous_typing_controller expects interleaved [r, theta] pairs
+# where r is the radial distance (mm) and theta is the angle from +Y axis
+# (north-oriented, clockwise positive, in radians).
+
+arm_auto_typing_node:
+  ros__parameters:
+    typing_command_topic: "/autonomous_typing_controller/typing_command"
+    text_input_topic: "~/text_input"
+
+    # Arm wrist pivot projected onto the keyboard plane (mm).
+    # This is the reference point for polar conversion.
+    origin:
+      x: 0.0   # TODO: calibrate
+      y: 0.0   # TODO: calibrate
+
+    key_layout:
+      # ── Key names ──────────────────────────────────────────────────────
+      # Single characters for letter/number/symbol keys.
+      # Multi-character names for modifier/special keys.
+      keys:
+        # Bottom row (modifiers + space bar)
+        - "ctl l"
+        - "wind"
+        - "alt l"
+        - "space"
+        - "alt r"
+        - "fn"
+        - "doc"
+        - "ctl r"
+        # Shift row
+        - "shift l"
+        - "z"
+        - "x"
+        - "c"
+        - "v"
+        - "b"
+        - "n"
+        - "m"
+        - "."
+        - "/"
+        - "shift r"
+        # Home row
+        - "caps lock"
+        - "a"
+        - "s"
+        - "d"
+        - "f"
+        - "g"
+        - "h"
+        - "j"
+        - "k"
+        - "l"
+        - ";"
+        - "'"
+        - "enter"
+        # Top letter row
+        - "r"
+        - "t"
+        - "y"
+        - "u"
+        - "i"
+        - "o"
+        - "p"
+        - "["
+        - "]"
+        - "\\"
+        # Number row
+        - "`"
+        - "1"
+        - "2"
+        - "3"
+        - "4"
+        - "5"
+        - "6"
+        - "7"
+        - "8"
+        - "9"
+        - "0"
+        - "-"
+        - "+"
+        - "back"
+
+      # ── X positions (mm, horizontal) ───────────────────────────────────
+      x_positions:
+        # Bottom row
+        - 14.5
+        - 38.5
+        - 61.5
+        - 85.5
+        - 205.5
+        - 228.5
+        - 252.5
+        - 276.5
+        # Shift row
+        - 24.0
+        - 55.0
+        - 74.0
+        - 92.0
+        - 122.0
+        - 131.0
+        - 150.0
+        - 169.0
+        - 207.0
+        - 226.0
+        - 261.5
+        # Home row
+        - 19.0
+        - 45.0
+        - 64.0
+        - 84.0
+        - 102.0
+        - 121.0
+        - 141.0
+        - 159.0
+        - 178.0
+        - 197.0
+        - 216.0
+        - 235.0
+        - 266.0
+        # Top letter row
+        - 98.0
+        - 117.0
+        - 136.0
+        - 154.0
+        - 173.0
+        - 193.0
+        - 262.0
+        - 231.0
+        - 250.0
+        - 273.0
+        # Number row
+        - 12.0
+        - 31.0
+        - 50.0
+        - 69.0
+        - 89.0
+        - 107.0
+        - 126.0
+        - 146.0
+        - 165.0
+        - 184.0
+        - 203.0
+        - 222.0
+        - 140.0
+        - 269.0
+
+      # ── Y positions (mm, vertical — increasing upward on keyboard) ────
+      y_positions:
+        # Bottom row
+        - 13.5
+        - 13.5
+        - 13.5
+        - 13.5
+        - 13.5
+        - 13.5
+        - 13.5
+        - 13.5
+        # Shift row
+        - 32.5
+        - 32.5
+        - 32.5
+        - 32.5
+        - 32.5
+        - 32.5
+        - 32.5
+        - 32.5
+        - 32.5
+        - 32.5
+        - 32.5
+        # Home row
+        - 51.5
+        - 51.5
+        - 51.5
+        - 51.5
+        - 51.5
+        - 51.5
+        - 51.5
+        - 51.5
+        - 51.5
+        - 51.5
+        - 51.5
+        - 51.5
+        - 51.5
+        # Top letter row
+        - 70.5
+        - 70.5
+        - 70.5
+        - 70.5
+        - 70.5
+        - 70.5
+        - 70.5
+        - 70.5
+        - 70.5
+        - 70.5
+        # Number row
+        - 89.5
+        - 89.5
+        - 89.5
+        - 89.5
+        - 89.5
+        - 89.5
+        - 89.5
+        - 89.5
+        - 89.5
+        - 89.5
+        - 89.5
+        - 89.5
+        - 89.5
+        - 89.5
