@@ -125,15 +125,15 @@ class JoystickPublisher(Node):
        
         joystick_vels = self.previous_axes
         button_activations = self.previous_buttons
-        for event in pygame.event.get():
-            if event.type == pygame.JOYAXISMOTION:
-                self.axis_data[event.axis] = round(event.value,2)
-            elif event.type == pygame.JOYBUTTONDOWN:
-                self.button_data[event.button] = True
-            elif event.type == pygame.JOYBUTTONUP:
-                self.button_data[event.button] = False
-            elif event.type == pygame.JOYHATMOTION:
-                self.hat_data[event.hat] = event.value
+
+        # Pump the event queue and then poll axis/button state directly.
+        # This avoids missed return-to-center events that can occur when
+        # the joystick is moved quickly between timer ticks.
+        pygame.event.pump()
+        for i in range(self.controller.get_numaxes()):
+            self.axis_data[i] = round(self.controller.get_axis(i), 2)
+        for i in range(self.controller.get_numbuttons()):
+            self.button_data[i] = self.controller.get_button(i)
 
         if(self.joystick_type == 0):
 
