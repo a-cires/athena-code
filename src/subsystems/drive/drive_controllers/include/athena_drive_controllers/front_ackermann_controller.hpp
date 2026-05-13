@@ -23,6 +23,8 @@
 #include "controller_interface/controller_interface.hpp"
 #include <drive_controllers/front_ackermann_controller_parameters.hpp>
 #include "athena_drive_controllers/visibility_control.h"
+#include "general_controllers/input_watchdog.hpp"
+#include "general_controllers/safe_stopper.hpp"
 #include "rclcpp_lifecycle/node_interfaces/lifecycle_node_interface.hpp"
 #include "rclcpp_lifecycle/state.hpp"
 #include "realtime_tools/realtime_buffer.hpp"
@@ -78,6 +80,10 @@ protected:
   // Subscriber for Twist reference input
   rclcpp::Subscription<ControllerReferenceMsg>::SharedPtr ref_subscriber_ = nullptr;
   realtime_tools::RealtimeBuffer<std::shared_ptr<ControllerReferenceMsg>> input_ref_;
+
+  // Watchdog: zero-velocity / hold-position safe-stop on stale input.
+  general_controllers::InputWatchdog input_watchdog_;
+  general_controllers::SafeStopper safe_stopper_;
 
   // Odometry publishers
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_publisher_ = nullptr;

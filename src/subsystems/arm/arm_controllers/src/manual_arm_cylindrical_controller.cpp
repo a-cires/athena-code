@@ -43,16 +43,6 @@ static constexpr rmw_qos_profile_t rmw_qos_profile_services_hist_keep_all = {
   RMW_QOS_LIVELINESS_LEASE_DURATION_DEFAULT,
   false};
 
-using ControllerReferenceMsg = arm_controllers::ManualArmCylindricalController::ControllerReferenceMsg;
-
-// called from RT control loop
-void reset_controller_reference_msg(
-  std::shared_ptr<ControllerReferenceMsg> & msg, const int & axes_count, const int & button_count)
-{
-  msg->axes.resize(axes_count, std::numeric_limits<double>::quiet_NaN());
-  msg->buttons.resize(button_count, std::numeric_limits<int32_t>::quiet_NaN());
-}
-
 }  // namespace
 
 namespace arm_controllers
@@ -103,6 +93,8 @@ controller_interface::CallbackReturn ManualArmCylindricalController::on_configur
   joint_velocities_.resize(params_.joints.size(), 0.0); // Output
   command_velocities_.resize(CMD_VELOCITIES_SIZE, 0.0); // Input
 
+  input_watchdog_.init(get_node(), 0.5);
+
   // topics QoS
   auto subscribers_qos = rclcpp::SystemDefaultsQoS();
   subscribers_qos.keep_last(1);
@@ -112,10 +104,11 @@ controller_interface::CallbackReturn ManualArmCylindricalController::on_configur
   ref_subscriber_ = get_node()->create_subscription<ControllerReferenceMsg>(
     "controller_input", subscribers_qos,
     std::bind(&ManualArmCylindricalController::reference_callback, this, std::placeholders::_1));
-  
-  // Create, populate with NaN, and write message to input_ref_ to be used in reference callback
+
+  // Pre-fill RT buffer; freshness is tracked by input_watchdog_.
   std::shared_ptr<ControllerReferenceMsg> msg = std::make_shared<ControllerReferenceMsg>();
-  reset_controller_reference_msg(msg, joystick_axes, joystick_buttons);
+  msg->axes.assign(joystick_axes, 0.0);
+  msg->buttons.assign(joystick_buttons, 0);
   input_ref_.writeFromNonRT(msg);
 
   auto set_slow_mode_service_callback =
@@ -164,21 +157,8 @@ controller_interface::CallbackReturn ManualArmCylindricalController::on_configur
 
 void ManualArmCylindricalController::reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg)
 {
-  /*
-  if (msg->joint_names.size() == params_.joints.size())
-  {
-    input_ref_.writeFromNonRT(msg);
-  }
-  else
-  {
-    RCLCPP_ERROR(
-      get_node()->get_logger(),
-      "Received %zu , but expected %zu joints in command. Ignoring message.",
-      msg->joint_names.size(), params_.joints.size());
-  }
-      */
-
   input_ref_.writeFromNonRT(msg);
+  input_watchdog_.notify(get_node()->now());
 }
 
 controller_interface::InterfaceConfiguration ManualArmCylindricalController::command_interface_configuration() const
@@ -212,13 +192,12 @@ controller_interface::InterfaceConfiguration ManualArmCylindricalController::sta
 controller_interface::CallbackReturn ManualArmCylindricalController::on_activate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  // TODO(anyone): if you have to manage multiple interfaces that need to be sorted check
-  // `on_activate` method in `JointTrajectoryController` for exemplary use of
-  // `controller_interface::get_ordered_interfaces` helper function
-
-  // Set default value in command
-  reset_controller_reference_msg(*(input_ref_.readFromRT)(), joystick_axes, joystick_buttons);
-
+  input_watchdog_.reset();
+  safe_stopper_.prepare(command_interfaces_);
+  for (size_t i = 0; i < command_interfaces_.size(); ++i)
+  {
+    command_interfaces_[i].set_value(0.0);
+  }
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -237,32 +216,39 @@ controller_interface::CallbackReturn ManualArmCylindricalController::on_deactiva
 controller_interface::return_type ManualArmCylindricalController::update(
   const rclcpp::Time & time, const rclcpp::Duration & /*period*/)
 {
+  const bool fresh = input_watchdog_.is_fresh(time);
+  input_watchdog_.log_state_transition(fresh, get_node()->get_logger());
+
+  if (!fresh) {
+    safe_stopper_.apply(command_interfaces_);
+    if (state_publisher_ && state_publisher_->trylock())
+    {
+      state_publisher_->msg_.header.stamp = time;
+      state_publisher_->msg_.set_point = command_interfaces_[CMD_MY_ITFS].get_value();
+      state_publisher_->unlockAndPublish();
+    }
+    return controller_interface::return_type::OK;
+  }
+
+  safe_stopper_.reset();
+
   auto current_ref = input_ref_.readFromRT();
 
-  
-
-  if (!std::isnan((*current_ref)->axes[0]))
-  {
-    //TODO: Get rid of the hardcoded rigamarole (translates to max vel of 1.5 inches/s)
-    command_velocities_[0] = (*current_ref)->axes[2]*0.174533; // l/r right joystick -> yaw 10 dps
-    command_velocities_[1] = (*current_ref)->axes[1]*6*0.00635; // u/d left joystick -> vy
-    command_velocities_[2] = (*current_ref)->axes[3]*6*0.00635; // u/d right joystick -> vz
-    command_velocities_[3] = (*current_ref)->axes[1] * static_cast<float>((*current_ref)->buttons[1]);  // u/d left joystick & circle -> thetadot
-    command_velocities_[4] = 0.0; // (*current_ref)->axes[0]; // l/r left joystick -> wrist roll
-    command_velocities_[5] = (*current_ref)->axes[4]; // left trigger -> open claw
-    command_velocities_[6] = (*current_ref)->axes[5]; // right trigger -> close claw
-  }
-  else
-  {
-    command_velocities_.resize(params_.joints.size(), 0.0);
-  }
+  //TODO: Get rid of the hardcoded rigamarole (translates to max vel of 1.5 inches/s)
+  command_velocities_[0] = (*current_ref)->axes[2]*0.174533; // l/r right joystick -> yaw 10 dps
+  command_velocities_[1] = (*current_ref)->axes[1]*6*0.00635; // u/d left joystick -> vy
+  command_velocities_[2] = (*current_ref)->axes[3]*6*0.00635; // u/d right joystick -> vz
+  command_velocities_[3] = (*current_ref)->axes[1] * static_cast<float>((*current_ref)->buttons[1]);  // u/d left joystick & circle -> thetadot
+  command_velocities_[4] = 0.0; // (*current_ref)->axes[0]; // l/r left joystick -> wrist roll
+  command_velocities_[5] = (*current_ref)->axes[4]; // left trigger -> open claw
+  command_velocities_[6] = (*current_ref)->axes[5]; // right trigger -> close claw
 
   for (size_t i = 0; i < state_interfaces_.size(); ++i)
   {
     current_joint_positions_[i] = state_interfaces_[i].get_value();
   }
 
-  // Command: (yaw, vy, vz, thetadot, open claw, close claw) -> 
+  // Command: (yaw, vy, vz, thetadot, open claw, close claw) ->
   // Joint Velocity: (Base Yaw, Shoulder Pitch, Elbow Pitch, Wrist Pitch, Wrist Roll, Open Claw, Close Claw)
   velocity_kinematics_calculations(command_velocities_, joint_velocities_, params_.joint_lengths, current_joint_positions_);
 
@@ -275,10 +261,10 @@ controller_interface::return_type ManualArmCylindricalController::update(
       command_interfaces_[i].set_value(joint_velocities_[i]);
 
       command_velocities_[i] = 0.0;
-      RCLCPP_INFO(get_node()->get_logger(), 
+      RCLCPP_INFO(get_node()->get_logger(),
         "Joint name: %s, Joint Velocity val (rad/s): %f, Current Joint Position (rad): %f",
-        state_joints_[i].c_str(), 
-        joint_velocities_[i], 
+        state_joints_[i].c_str(),
+        joint_velocities_[i],
         current_joint_positions_[i]);
 
   }

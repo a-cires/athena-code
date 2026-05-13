@@ -44,20 +44,6 @@ static constexpr rmw_qos_profile_t rmw_qos_profile_services_hist_keep_all = {
   RMW_QOS_LIVELINESS_LEASE_DURATION_DEFAULT,
   false};
 
-using ControllerReferenceMsg = drive_controllers::SwerveDriveController::ControllerReferenceMsg;
-
-// called from RT control loop
-void reset_controller_reference_msg(
-  std::shared_ptr<ControllerReferenceMsg> & msg)
-{
-  msg->linear.x = std::numeric_limits<double>::quiet_NaN();
-  msg->linear.y = std::numeric_limits<double>::quiet_NaN();
-  msg->linear.z = std::numeric_limits<double>::quiet_NaN();
-  msg->angular.x = std::numeric_limits<double>::quiet_NaN();
-  msg->angular.y = std::numeric_limits<double>::quiet_NaN();
-  msg->angular.z = std::numeric_limits<double>::quiet_NaN();
-}
-
 }  // namespace
 
 namespace drive_controllers
@@ -120,13 +106,22 @@ controller_interface::CallbackReturn SwerveDriveController::on_configure(
   subscribers_qos.keep_last(1);
   subscribers_qos.best_effort();
 
+  input_watchdog_.init(get_node(), 0.5);
+
   // Reference Subscriber
   ref_subscriber_ = get_node()->create_subscription<ControllerReferenceMsg>(
     "/cmd_vel", subscribers_qos,
     std::bind(&SwerveDriveController::reference_callback, this, std::placeholders::_1));
 
+  // Pre-fill the RT buffer with a zero-twist message so the RT loop never
+  // dereferences a null shared_ptr. Freshness is tracked separately.
   std::shared_ptr<ControllerReferenceMsg> msg = std::make_shared<ControllerReferenceMsg>();
-  reset_controller_reference_msg(msg);
+  msg->linear.x = 0.0;
+  msg->linear.y = 0.0;
+  msg->linear.z = 0.0;
+  msg->angular.x = 0.0;
+  msg->angular.y = 0.0;
+  msg->angular.z = 0.0;
   input_ref_.writeFromNonRT(msg);
 
   auto set_slow_mode_service_callback =
@@ -175,18 +170,8 @@ controller_interface::CallbackReturn SwerveDriveController::on_configure(
 
 void SwerveDriveController::reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg)
 {
-  // if (msg->joint_names.size() == params_.joints.size())
-  // {
-  //   input_ref_.writeFromNonRT(msg);
-  // }
-  // else
-  // {
-  //   RCLCPP_ERROR(
-  //     get_node()->get_logger(),
-  //     "Received %zu , but expected %zu joints in command. Ignoring message.",
-  //     msg->joint_names.size(), params_.joints.size());
-  // }
   input_ref_.writeFromNonRT(msg);
+  input_watchdog_.notify(get_node()->now());
 }
 
 controller_interface::InterfaceConfiguration SwerveDriveController::command_interface_configuration() const
@@ -228,12 +213,15 @@ controller_interface::InterfaceConfiguration SwerveDriveController::state_interf
 controller_interface::CallbackReturn SwerveDriveController::on_activate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  // TODO(anyone): if you have to manage multiple interfaces that need to be sorted check
-  // `on_activate` method in `JointTrajectoryController` for exemplary use of
-  // `controller_interface::get_ordered_interfaces` helper function
+  input_watchdog_.reset();
 
-  // Set default value in command
-  reset_controller_reference_msg(*(input_ref_.readFromRT)());
+  // Pre-zero command interfaces so the position-latch path reads finite
+  // values during the initial stale window.
+  for (size_t i = 0; i < command_interfaces_.size(); ++i)
+  {
+    command_interfaces_[i].set_value(0.0);
+  }
+  safe_stopper_.prepare(command_interfaces_);
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -253,8 +241,24 @@ controller_interface::CallbackReturn SwerveDriveController::on_deactivate(
 controller_interface::return_type SwerveDriveController::update(
   const rclcpp::Time & time, const rclcpp::Duration & /*period*/)
 {
+  const bool fresh = input_watchdog_.is_fresh(time);
+  input_watchdog_.log_state_transition(fresh, get_node()->get_logger());
+
+  if (!fresh) {
+    safe_stopper_.apply(command_interfaces_);
+    if (state_publisher_ && state_publisher_->trylock())
+    {
+      state_publisher_->msg_.header.stamp = time;
+      state_publisher_->msg_.set_point = command_interfaces_[CMD_MY_ITFS].get_value();
+      state_publisher_->unlockAndPublish();
+    }
+    return controller_interface::return_type::OK;
+  }
+
+  safe_stopper_.reset();
+
   auto current_ref = input_ref_.readFromRT();
-  
+
   double linear_x = (*current_ref)->linear.x;
   double linear_y = (*current_ref)->linear.y;
   double angular_z = (*current_ref)->angular.z;
@@ -278,14 +282,6 @@ controller_interface::return_type SwerveDriveController::update(
   const double rear_left_position = atan2(a,d);
   const double rear_right_position = atan2(a,c);
 
-  // if (*(control_mode_.readFromRT()) == control_mode_type::SLOW)
-  // {
-  //   front_left_velocity /= 2;
-  //   front_right_velocity /= 2;
-  //   rear_left_velocity /= 2;
-  //   rear_right_velocity /= 2;
-  // }
-
   RCLCPP_INFO(get_node()->get_logger(), "Velocity - FL: %f, FR: %f BL: %f, BR: %f\n", front_left_velocity, front_right_velocity, rear_left_velocity, rear_right_velocity);
 
   command_interfaces_[0].set_value(front_left_position);
@@ -296,14 +292,6 @@ controller_interface::return_type SwerveDriveController::update(
   command_interfaces_[5].set_value(front_right_velocity);
   command_interfaces_[6].set_value(rear_left_velocity);
   command_interfaces_[7].set_value(rear_right_velocity);
-
-
-  (*current_ref)->linear.x = std::numeric_limits<double>::quiet_NaN();
-  (*current_ref)->linear.y = std::numeric_limits<double>::quiet_NaN();
-  (*current_ref)->linear.z = std::numeric_limits<double>::quiet_NaN();
-  (*current_ref)->angular.x = std::numeric_limits<double>::quiet_NaN();
-  (*current_ref)->angular.y = std::numeric_limits<double>::quiet_NaN();
-  (*current_ref)->angular.z = std::numeric_limits<double>::quiet_NaN();
 
   if (state_publisher_ && state_publisher_->trylock())
   {

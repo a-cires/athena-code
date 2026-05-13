@@ -9,11 +9,13 @@ endif()
 set(THIS_PACKAGE_INCLUDE_DEPENDS
   control_msgs
   controller_interface
+  general_controllers
   hardware_interface
   pluginlib
   rclcpp
   rclcpp_lifecycle
   realtime_tools
+  sensor_msgs
   std_srvs
 )
 
@@ -97,35 +99,19 @@ install(
   DESTINATION include/${PROJECT_NAME}
 )
 
-# if(BUILD_TESTING)
-
-#   ament_add_gmock(test_load_manual_arm_cylindrical_controller test/test_load_manual_arm_cylindrical_controller.cpp)
-#   target_include_directories(test_load_manual_arm_cylindrical_controller PRIVATE include)
-#   ament_target_dependencies(
-#     test_load_manual_arm_cylindrical_controller
-#     controller_manager
-#     hardware_interface
-#     ros2_control_test_assets
-#   )
-
-#   add_rostest_with_parameters_gmock(test_manual_arm_cylindrical_controller test/test_manual_arm_cylindrical_controller.cpp ${CMAKE_CURRENT_SOURCE_DIR}/test/manual_arm_cylindrical_controller_params.yaml)
-#   target_include_directories(test_manual_arm_cylindrical_controller PRIVATE include)
-#   target_link_libraries(test_manual_arm_cylindrical_controller manual_arm_cylindrical_controller)
-#   ament_target_dependencies(
-#     test_manual_arm_cylindrical_controller
-#     controller_interface
-#     hardware_interface
-#   )
-
-#   add_rostest_with_parameters_gmock(test_manual_arm_cylindrical_controller_preceeding test/test_manual_arm_cylindrical_controller_preceeding.cpp ${CMAKE_CURRENT_SOURCE_DIR}/test/manual_arm_cylindrical_controller_preceeding_params.yaml)
-#   target_include_directories(test_manual_arm_cylindrical_controller_preceeding PRIVATE include)
-#   target_link_libraries(test_manual_arm_cylindrical_controller_preceeding manual_arm_cylindrical_controller)
-#   ament_target_dependencies(
-#     test_manual_arm_cylindrical_controller_preceeding
-#     controller_interface
-#     hardware_interface
-#   )
-# endif()
+if(BUILD_TESTING)
+  ament_add_gmock(test_manual_arm_jbj_watchdog test/test_manual_arm_jbj_watchdog.cpp)
+  target_include_directories(test_manual_arm_jbj_watchdog PRIVATE include)
+  target_link_libraries(test_manual_arm_jbj_watchdog arm_controllers)
+  ament_target_dependencies(
+    test_manual_arm_jbj_watchdog
+    controller_interface
+    hardware_interface
+    rclcpp
+    rclcpp_lifecycle
+    sensor_msgs
+  )
+endif()
 
 ament_export_include_directories(
   include

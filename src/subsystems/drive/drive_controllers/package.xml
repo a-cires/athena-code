@@ -16,6 +16,7 @@
   <depend>umdloop_can_library</depend>
   <depend>geometry_msgs</depend>
   <depend>controller_interface</depend>
+  <depend>general_controllers</depend>
   <depend>hardware_interface</depend>
   <depend>nav_msgs</depend>
   <depend>pluginlib</depend>

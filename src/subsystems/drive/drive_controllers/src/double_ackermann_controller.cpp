@@ -43,20 +43,6 @@ static constexpr rmw_qos_profile_t rmw_qos_profile_services_hist_keep_all = {
   RMW_QOS_LIVELINESS_LEASE_DURATION_DEFAULT,
   false};
 
-using ControllerReferenceMsg = drive_controllers::DoubleAckermannController::ControllerReferenceMsg;
-
-// called from RT control loop
-void reset_controller_reference_msg(
-  std::shared_ptr<ControllerReferenceMsg> & msg)
-{
-  msg->linear.x = std::numeric_limits<double>::quiet_NaN();
-  msg->linear.y = std::numeric_limits<double>::quiet_NaN();
-  msg->linear.z = std::numeric_limits<double>::quiet_NaN();
-  msg->angular.x = std::numeric_limits<double>::quiet_NaN();
-  msg->angular.y = std::numeric_limits<double>::quiet_NaN();
-  msg->angular.z = std::numeric_limits<double>::quiet_NaN();
-}
-
 }  // namespace
 
 namespace drive_controllers
@@ -119,13 +105,22 @@ controller_interface::CallbackReturn DoubleAckermannController::on_configure(
   subscribers_qos.keep_last(1);
   subscribers_qos.best_effort();
 
+  input_watchdog_.init(get_node(), 0.5);
+
   // Reference Subscriber
   ref_subscriber_ = get_node()->create_subscription<ControllerReferenceMsg>(
     "~/reference", subscribers_qos,
     std::bind(&DoubleAckermannController::reference_callback, this, std::placeholders::_1));
 
+  // Pre-fill the RT buffer with a zero-twist message; freshness is tracked
+  // separately by input_watchdog_.
   std::shared_ptr<ControllerReferenceMsg> msg = std::make_shared<ControllerReferenceMsg>();
-  reset_controller_reference_msg(msg);
+  msg->linear.x = 0.0;
+  msg->linear.y = 0.0;
+  msg->linear.z = 0.0;
+  msg->angular.x = 0.0;
+  msg->angular.y = 0.0;
+  msg->angular.z = 0.0;
   input_ref_.writeFromNonRT(msg);
 
   auto set_slow_mode_service_callback =
@@ -172,19 +167,10 @@ controller_interface::CallbackReturn DoubleAckermannController::on_configure(
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
-void DoubleAckermannController::reference_callback(const std::shared_ptr<ControllerReferenceMsg> /*msg*/)
+void DoubleAckermannController::reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg)
 {
-  // if (msg->joint_names.size() == joints.size())
-  // {
-  //   input_ref_.writeFromNonRT(msg);
-  // }
-  // else
-  // {
-  //   RCLCPP_ERROR(
-  //     get_node()->get_logger(),
-  //     "Received %zu , but expected %zu joints in command. Ignoring message.",
-  //     msg->joint_names.size(), joints.size());
-  // }
+  input_ref_.writeFromNonRT(msg);
+  input_watchdog_.notify(get_node()->now());
 }
 
 controller_interface::InterfaceConfiguration DoubleAckermannController::command_interface_configuration() const
@@ -226,13 +212,12 @@ controller_interface::InterfaceConfiguration DoubleAckermannController::state_in
 controller_interface::CallbackReturn DoubleAckermannController::on_activate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  // TODO(anyone): if you have to manage multiple interfaces that need to be sorted check
-  // `on_activate` method in `JointTrajectoryController` for exemplary use of
-  // `controller_interface::get_ordered_interfaces` helper function
-
-  // Set default value in command
-  reset_controller_reference_msg(*(input_ref_.readFromRT)());
-
+  input_watchdog_.reset();
+  for (size_t i = 0; i < command_interfaces_.size(); ++i)
+  {
+    command_interfaces_[i].set_value(0.0);
+  }
+  safe_stopper_.prepare(command_interfaces_);
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -251,6 +236,22 @@ controller_interface::CallbackReturn DoubleAckermannController::on_deactivate(
 controller_interface::return_type DoubleAckermannController::update(
   const rclcpp::Time & time, const rclcpp::Duration & /*period*/)
 {
+  const bool fresh = input_watchdog_.is_fresh(time);
+  input_watchdog_.log_state_transition(fresh, get_node()->get_logger());
+
+  if (!fresh) {
+    safe_stopper_.apply(command_interfaces_);
+    if (state_publisher_ && state_publisher_->trylock())
+    {
+      state_publisher_->msg_.header.stamp = time;
+      state_publisher_->msg_.set_point = command_interfaces_[CMD_MY_ITFS].get_value();
+      state_publisher_->unlockAndPublish();
+    }
+    return controller_interface::return_type::OK;
+  }
+
+  safe_stopper_.reset();
+
   auto current_ref = input_ref_.readFromRT();
 
   double linear_x = (*current_ref)->linear.x;
@@ -282,14 +283,6 @@ controller_interface::return_type DoubleAckermannController::update(
   command_interfaces_[5].set_value(right_wheel_velocity);
   command_interfaces_[6].set_value(left_wheel_velocity);
   command_interfaces_[7].set_value(right_wheel_velocity);
-
-
-  (*current_ref)->linear.x = std::numeric_limits<double>::quiet_NaN();
-  (*current_ref)->linear.y = std::numeric_limits<double>::quiet_NaN();
-  (*current_ref)->linear.z = std::numeric_limits<double>::quiet_NaN();
-  (*current_ref)->angular.x = std::numeric_limits<double>::quiet_NaN();
-  (*current_ref)->angular.y = std::numeric_limits<double>::quiet_NaN();
-  (*current_ref)->angular.z = std::numeric_limits<double>::quiet_NaN();
 
   if (state_publisher_ && state_publisher_->trylock())
   {

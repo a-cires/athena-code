@@ -52,6 +52,8 @@ controller_interface::CallbackReturn RearAckermannController::on_configure(
   drive_joint_names_ = params_.drive_joints;
   steer_joint_names_ = params_.steer_joints;
 
+  input_watchdog_.init(get_node(), 0.5);
+
   auto subscribers_qos = rclcpp::SystemDefaultsQoS();
   subscribers_qos.keep_last(1);
   subscribers_qos.best_effort();
@@ -69,6 +71,7 @@ controller_interface::CallbackReturn RearAckermannController::on_configure(
 void RearAckermannController::reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg)
 {
   input_ref_.writeFromNonRT(msg);
+  input_watchdog_.notify(get_node()->now());
 }
 
 controller_interface::InterfaceConfiguration RearAckermannController::command_interface_configuration() const
@@ -103,6 +106,9 @@ controller_interface::CallbackReturn RearAckermannController::on_activate(
     command_interfaces_[i].set_value(0.0);
   }
 
+  input_watchdog_.reset();
+  safe_stopper_.prepare(command_interfaces_);
+
   RCLCPP_INFO(get_node()->get_logger(), "RearAckermannController activated with all commands set to zero");
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -119,17 +125,19 @@ controller_interface::CallbackReturn RearAckermannController::on_deactivate(
 }
 
 controller_interface::return_type RearAckermannController::update(
-  const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
+  const rclcpp::Time & time, const rclcpp::Duration & /*period*/)
 {
+  const bool fresh = input_watchdog_.is_fresh(time);
+  input_watchdog_.log_state_transition(fresh, get_node()->get_logger());
+
   auto current_ref = input_ref_.readFromRT();
-  if (!current_ref || !(*current_ref))
+  if (!fresh || !current_ref || !(*current_ref))
   {
-    for (size_t i = 0; i < command_interfaces_.size(); ++i)
-    {
-      command_interfaces_[i].set_value(0.0);
-    }
+    safe_stopper_.apply(command_interfaces_);
     return controller_interface::return_type::OK;
   }
+
+  safe_stopper_.reset();
 
   double linear_vel_cmd = std::clamp(
     (*current_ref)->twist.linear.x, -params_.max_speed, params_.max_speed);

@@ -9,6 +9,7 @@ endif()
 set(THIS_PACKAGE_INCLUDE_DEPENDS
   control_msgs
   controller_interface
+  general_controllers
   geometry_msgs
   hardware_interface
   nav_msgs

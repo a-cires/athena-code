@@ -144,6 +144,8 @@ controller_interface::CallbackReturn ScienceManual::on_configure(
   subscribers_qos.keep_last(1);
   subscribers_qos.best_effort();
 
+  input_watchdog_.init(get_node(), 0.5);
+
   // Reference subscriber
   ref_subscriber_ = get_node()->create_subscription<ControllerReferenceMsg>(
     "/science_manual", subscribers_qos,
@@ -177,6 +179,7 @@ void ScienceManual::reference_callback(const std::shared_ptr<ControllerReference
     prev_buttons_.resize(msg->buttons.size(), 0);
   }
   input_ref_.writeFromNonRT(msg);
+  input_watchdog_.notify(get_node()->now());
 }
 
 controller_interface::InterfaceConfiguration ScienceManual::command_interface_configuration() const
@@ -236,6 +239,16 @@ controller_interface::CallbackReturn ScienceManual::on_activate(
       CMD_ITFS_COUNT, command_interfaces_.size());
     return controller_interface::CallbackReturn::ERROR;
   }
+
+  // Pre-zero command interfaces so the position-latch path reads finite
+  // values during the initial stale window, then prepare the safe stopper.
+  for (size_t i = 0; i < command_interfaces_.size(); ++i)
+  {
+    command_interfaces_[i].set_value(0.0);
+  }
+  input_watchdog_.reset();
+  safe_stopper_.prepare(command_interfaces_);
+
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -256,9 +269,27 @@ controller_interface::CallbackReturn ScienceManual::on_deactivate(
 }
 
 controller_interface::return_type ScienceManual::update(
-  const rclcpp::Time & /*time*/,
+  const rclcpp::Time & time,
   const rclcpp::Duration & period)
 {
+  const bool fresh = input_watchdog_.is_fresh(time);
+  input_watchdog_.log_state_transition(fresh, get_node()->get_logger());
+
+  if (!fresh) {
+    safe_stopper_.apply(command_interfaces_);
+
+    if (state_publisher_ && state_publisher_->trylock()) {
+      state_publisher_->msg_.header.stamp = time;
+      state_publisher_->msg_.set_point = 0.0;
+      state_publisher_->msg_.process_value = 0.0;
+      state_publisher_->msg_.command = 0.0;
+      state_publisher_->unlockAndPublish();
+    }
+    return controller_interface::return_type::OK;
+  }
+
+  safe_stopper_.reset();
+
   auto current_ref = input_ref_.readFromRT();
 
   if (!(*current_ref)) {

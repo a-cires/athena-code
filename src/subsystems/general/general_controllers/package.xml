@@ -11,6 +11,8 @@
 
   <build_depend>generate_parameter_library</build_depend>
 
+  <test_depend>ament_cmake_gtest</test_depend>
+
   <depend>controller_interface</depend>
   <depend>msgs</depend>
   <depend>hardware_interface</depend>

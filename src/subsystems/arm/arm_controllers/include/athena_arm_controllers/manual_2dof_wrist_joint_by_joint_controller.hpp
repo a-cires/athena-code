@@ -8,6 +8,8 @@
 #include "controller_interface/controller_interface.hpp"
 #include <arm_controllers/manual_2dof_wrist_joint_by_joint_controller_parameters.hpp>
 #include "athena_arm_controllers/visibility_control.h"
+#include "general_controllers/input_watchdog.hpp"
+#include "general_controllers/safe_stopper.hpp"
 #include "rclcpp_lifecycle/node_interfaces/lifecycle_node_interface.hpp"
 #include "rclcpp_lifecycle/state.hpp"
 #include "realtime_tools/realtime_buffer.hpp"
@@ -98,6 +100,10 @@ protected:
 
   rclcpp::Service<ControllerModeSrvType>::SharedPtr set_slow_control_mode_service_;
   realtime_tools::RealtimeBuffer<control_mode_type> control_mode_;
+
+  // Watchdog: zero-velocity safe-stop when reference input is stale.
+  general_controllers::InputWatchdog input_watchdog_;
+  general_controllers::SafeStopper safe_stopper_;
 
   using ControllerStatePublisher = realtime_tools::RealtimePublisher<ControllerStateMsg>;
 

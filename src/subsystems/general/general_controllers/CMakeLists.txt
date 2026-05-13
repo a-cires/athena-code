@@ -31,7 +31,7 @@ add_library(
 )
 target_include_directories(general_controllers PUBLIC
   "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"
-  "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
+  "$<INSTALL_INTERFACE:include>")
 target_link_libraries(general_controllers motor_status_controller_parameters)
 ament_target_dependencies(general_controllers ${THIS_PACKAGE_INCLUDE_DEPENDS})
 target_compile_definitions(general_controllers PRIVATE "GENERAL_CONTROLLERS_BUILDING_DLL")
@@ -49,8 +49,27 @@ install(
 
 install(
   DIRECTORY include/
-  DESTINATION include/${PROJECT_NAME}
+  DESTINATION include
 )
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(test_input_watchdog test/test_input_watchdog.cpp)
+  target_include_directories(test_input_watchdog PRIVATE include)
+  ament_target_dependencies(
+    test_input_watchdog
+    rclcpp
+    rclcpp_lifecycle
+  )
+
+  ament_add_gtest(test_safe_stopper test/test_safe_stopper.cpp)
+  target_include_directories(test_safe_stopper PRIVATE include)
+  ament_target_dependencies(
+    test_safe_stopper
+    hardware_interface
+  )
+endif()
 
 ament_export_include_directories(
   include

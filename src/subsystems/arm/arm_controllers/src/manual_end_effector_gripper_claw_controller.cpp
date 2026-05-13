@@ -24,16 +24,6 @@ static constexpr rmw_qos_profile_t rmw_qos_profile_services_hist_keep_all = {
   RMW_QOS_LIVELINESS_LEASE_DURATION_DEFAULT,
   false};
 
-using ControllerReferenceMsg = arm_controllers::ManualEndEffectorGripperClawController::ControllerReferenceMsg;
-
-// called from RT control loop
-void reset_controller_reference_msg(
-  std::shared_ptr<ControllerReferenceMsg> & msg, const int & axes_count, const int & button_count)
-{
-  msg->axes.resize(axes_count, std::numeric_limits<double>::quiet_NaN());
-  msg->buttons.resize(button_count, std::numeric_limits<int32_t>::quiet_NaN());
-}
-
 }  // namespace
 
 namespace arm_controllers
@@ -66,6 +56,8 @@ controller_interface::CallbackReturn ManualEndEffectorGripperClawController::on_
   joint_velocities_.resize(num_joints, 0.0); // Output
   max_velocities_ = params_.joint_max_velocities;
 
+  input_watchdog_.init(get_node(), 0.5);
+
   // topics QoS
   auto subscribers_qos = rclcpp::SystemDefaultsQoS();
   subscribers_qos.keep_last(1);
@@ -75,10 +67,11 @@ controller_interface::CallbackReturn ManualEndEffectorGripperClawController::on_
   ref_subscriber_ = get_node()->create_subscription<ControllerReferenceMsg>(
     "controller_input", subscribers_qos,
     std::bind(&ManualEndEffectorGripperClawController::reference_callback, this, std::placeholders::_1));
-  
-  // Create, populate with NaN, and write message to input_ref_ to be used in reference callback
+
+  // Pre-fill RT buffer; freshness is tracked by input_watchdog_.
   std::shared_ptr<ControllerReferenceMsg> msg = std::make_shared<ControllerReferenceMsg>();
-  reset_controller_reference_msg(msg, joystick_axes, joystick_buttons);
+  msg->axes.assign(joystick_axes, 0.0);
+  msg->buttons.assign(joystick_buttons, 0);
   input_ref_.writeFromNonRT(msg);
 
   auto set_slow_mode_service_callback =
@@ -128,6 +121,7 @@ controller_interface::CallbackReturn ManualEndEffectorGripperClawController::on_
 void ManualEndEffectorGripperClawController::reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg)
 {
   input_ref_.writeFromNonRT(msg);
+  input_watchdog_.notify(get_node()->now());
 }
 
 controller_interface::InterfaceConfiguration ManualEndEffectorGripperClawController::command_interface_configuration() const
@@ -170,9 +164,12 @@ controller_interface::InterfaceConfiguration ManualEndEffectorGripperClawControl
 controller_interface::CallbackReturn ManualEndEffectorGripperClawController::on_activate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  // Set default value in command
-  reset_controller_reference_msg(*(input_ref_.readFromRT)(), joystick_axes, joystick_buttons);
-
+  input_watchdog_.reset();
+  safe_stopper_.prepare(command_interfaces_);
+  for (size_t i = 0; i < command_interfaces_.size(); ++i)
+  {
+    command_interfaces_[i].set_value(0.0);
+  }
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -189,51 +186,64 @@ controller_interface::CallbackReturn ManualEndEffectorGripperClawController::on_
 controller_interface::return_type ManualEndEffectorGripperClawController::update(
   const rclcpp::Time & time, const rclcpp::Duration & /*period*/)
 {
+  const bool fresh = input_watchdog_.is_fresh(time);
+  input_watchdog_.log_state_transition(fresh, get_node()->get_logger());
+
+  if (!fresh) {
+    // Reset actuator latch state so a stale episode in the middle of a
+    // square-button cycle starts cleanly when input resumes.
+    actuator_active_ = false;
+    actuator_iterator = 0.0;
+    joint_velocities_.assign(num_joints, 0.0);
+
+    safe_stopper_.apply(command_interfaces_);
+    if (state_publisher_ && state_publisher_->trylock())
+    {
+      state_publisher_->msg_.header.stamp = time;
+      state_publisher_->msg_.set_point = command_interfaces_[CMD_MY_ITFS].get_value();
+      state_publisher_->unlockAndPublish();
+    }
+    return controller_interface::return_type::OK;
+  }
+
+  safe_stopper_.reset();
+
   auto current_ref = input_ref_.readFromRT();
 
-  if (!std::isnan((*current_ref)->axes[0]))
-  {
-    // Gripper Claw: Bumpers and Triggers
-    if ((*current_ref)->buttons[4] && (*current_ref)->buttons[5]) {
-    // closeClaw(motor);
-    } else if ((*current_ref)->buttons[4]) { // Left bumper
-      joint_velocities_[0] = max_velocities_[0]; // open claw
-    } else if ((*current_ref)->buttons[5]) { // Right bumper
-      joint_velocities_[0] = -max_velocities_[0]; // close claw
-    } else if ((*current_ref)->axes[4]) { // Left Trigger
-      joint_velocities_[0] = (*current_ref)->axes[4] * max_velocities_[0]; // open claw
-    } else if ((*current_ref)->axes[5]) { // Right Trigger
-      joint_velocities_[0] = -(*current_ref)->axes[5] * max_velocities_[0]; // close claw
-    } else{
-      joint_velocities_[0] = 0.0;
-    }
-
-    // Actuator (EXPERIMENTAL)
-    // Pressing square activates actuator movement
-    if((*current_ref)->buttons[3] == 1 && actuator_active_ == false){
-      actuator_active_ = true;
-      actuator_iterator = 0.001;
-    }
-
-    // Move actuator up to max position, then begin moving it down
-    if (joint_velocities_[1] >= max_velocities_[1] && actuator_active_ == true && actuator_iterator > 0){
-      actuator_iterator = -0.001;
-    }
-
-    // Once actuator reaches original position, stop movement
-    if (actuator_active_ == true && joint_velocities_[1] == 0.0 && actuator_iterator < 0){
-      actuator_active_ = false;
-      actuator_iterator = 0.0;
-    }
-
-    joint_velocities_[1] = joint_velocities_[1] + actuator_iterator;
-  }
-  else{
-    // RCLCPP_INFO(get_node()->get_logger(), "Returning NaN");
-    joint_velocities_.resize(num_joints, 0.0);
+  // Gripper Claw: Bumpers and Triggers
+  if ((*current_ref)->buttons[4] && (*current_ref)->buttons[5]) {
+  // closeClaw(motor);
+  } else if ((*current_ref)->buttons[4]) { // Left bumper
+    joint_velocities_[0] = max_velocities_[0]; // open claw
+  } else if ((*current_ref)->buttons[5]) { // Right bumper
+    joint_velocities_[0] = -max_velocities_[0]; // close claw
+  } else if ((*current_ref)->axes[4]) { // Left Trigger
+    joint_velocities_[0] = (*current_ref)->axes[4] * max_velocities_[0]; // open claw
+  } else if ((*current_ref)->axes[5]) { // Right Trigger
+    joint_velocities_[0] = -(*current_ref)->axes[5] * max_velocities_[0]; // close claw
+  } else{
+    joint_velocities_[0] = 0.0;
   }
 
-  // RCLCPP_INFO(get_node()->get_logger(), "Size of Command Interface: %d", command_interfaces_.size());
+  // Actuator (EXPERIMENTAL)
+  // Pressing square activates actuator movement
+  if((*current_ref)->buttons[3] == 1 && actuator_active_ == false){
+    actuator_active_ = true;
+    actuator_iterator = 0.001;
+  }
+
+  // Move actuator up to max position, then begin moving it down
+  if (joint_velocities_[1] >= max_velocities_[1] && actuator_active_ == true && actuator_iterator > 0){
+    actuator_iterator = -0.001;
+  }
+
+  // Once actuator reaches original position, stop movement
+  if (actuator_active_ == true && joint_velocities_[1] == 0.0 && actuator_iterator < 0){
+    actuator_active_ = false;
+    actuator_iterator = 0.0;
+  }
+
+  joint_velocities_[1] = joint_velocities_[1] + actuator_iterator;
 
   for (size_t i = 0; i < command_interfaces_.size(); ++i)
   {
@@ -241,11 +251,7 @@ controller_interface::return_type ManualEndEffectorGripperClawController::update
     {
       joint_velocities_[i] /= 2;
     }
-    // RCLCPP_INFO(get_node()->get_logger(), "Joint %d: %f", i, joint_velocities_[i]);
     command_interfaces_[i].set_value(joint_velocities_[i]);
-
-    // (*current_ref)->axes[i] = std::numeric_limits<double>::quiet_NaN();
-    // (*current_ref)->buttons[i] = std::numeric_limits<double>::quiet_NaN();
   }
 
   if (state_publisher_ && state_publisher_->trylock())
