@@ -7,7 +7,7 @@ Before=network.target
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/umdloop_can_setup.sh
-ExecStop=/sbin/ip link set can0 down
+ExecStop=/sbin/ip link set can1 down
 RemainAfterExit=yes
 StandardOutput=journal
 StandardError=journal

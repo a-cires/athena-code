@@ -8,7 +8,7 @@
   <xacro:arg name="sim_gazebo" default="true"/>
   <xacro:arg name="simulation_controllers" default=""/>
   <xacro:arg name="deactivate_odrive" default="false"/>
-  <xacro:arg name="can_interface" default="can0"/>
+  <xacro:arg name="can_interface" default="can1"/>
 
 
   <xacro:include filename="$(find description)/urdf/athena_drive/athena_drive_macro.xacro"/>

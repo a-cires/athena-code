@@ -12,7 +12,7 @@ def generate_launch_description():
     model_arg = DeclareLaunchArgument('model', default_value='', description='Model argument')
     can_interface_arg = DeclareLaunchArgument(
         'can_interface',
-        default_value='can0',
+        default_value='can1',
         description='CAN interface to use for hardware interfaces.',
     )
     can_interface = LaunchConfiguration('can_interface')

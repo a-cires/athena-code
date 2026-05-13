@@ -84,7 +84,7 @@ configure_can() {
 
     while true; do
         echo "Select CAN interface type:"
-        echo "1) Native Jetson CAN (can0/mttcan)"
+        echo "1) Native Jetson CAN (can1/mttcan)"
         echo "2) CANable USB adapter (slcand)"
         echo "3) Skip CAN configuration"
         read -p "Enter choice [1-3]: " can_choice
@@ -127,7 +127,7 @@ setup_can_service() {
 
     if systemctl is-enabled umdloop_can.service &>/dev/null; then
         echo "[WARN] CAN service already enabled"
-        ip link set can0 down 2>/dev/null || true
+        ip link set can1 down 2>/dev/null || true
         systemctl restart umdloop_can.service
     else
         systemctl daemon-reload

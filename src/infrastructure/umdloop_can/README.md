@@ -94,7 +94,7 @@ ros2 run umdloop_can can_node
 
 You should start to see your terminal fill up with messages. You can also open up a new termainal and double check against candump:
 ```
-candump can0
+candump can1
 ```
 This will show you all of the CAN messages on your CAN network device
 

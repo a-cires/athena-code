@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # can_error_parse.sh — Live CAN error frame decoder
-# Usage: candump can0 -e -t a | ./can_error_parse.sh
+# Usage: candump can1 -e -t a | ./can_error_parse.sh
 
 RED='\033[0;31m'; YEL='\033[0;33m'; CYN='\033[0;36m'
 GRN='\033[0;32m'; DIM='\033[2m';    RST='\033[0m'
@@ -105,7 +105,7 @@ severity_label() {
 }
 
 # ── candump -e -t a line format:
-#   (1234.567890) can0  0AC   [8]  00 04 00 00 00 00 00 00
+#   (1234.567890) can1  0AC   [8]  00 04 00 00 00 00 00 00
 #    ^timestamp   ^iface ^id  ^dlc  ^b0 b1 b2 b3 b4 b5 b6 b7
 
 while IFS= read -r line; do

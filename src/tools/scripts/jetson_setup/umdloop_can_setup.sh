@@ -8,10 +8,10 @@ modprobe can_raw
 modprobe mttcan
 
 # https://docs.nvidia.com/jetson/archives/r35.3.1/DeveloperGuide/text/HR/ControllerAreaNetworkCan.html#jetson-platform-details
-busybox devmem 0x0c303018 w 0xc458  # can0_din
-busybox devmem 0x0c303010 w 0xc400  # can0_dout
+busybox devmem 0x0c303018 w 0xc458  # can1_din
+busybox devmem 0x0c303010 w 0xc400  # can1_dout
 
-ip link set can0 up type can \
+ip link set can1 up type can \
     bitrate 1000000 \
     berr-reporting on \
     restart-ms 1000

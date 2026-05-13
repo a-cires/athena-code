@@ -55,7 +55,7 @@
 ./virtual_can_setup.sh
 ```
 
-Use *ip link* to check that there is a can0/vcan0.
+Use *ip link* to check that there is a can1/vcan1.
 
 ---
 

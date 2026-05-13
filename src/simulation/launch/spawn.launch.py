@@ -22,7 +22,7 @@ ARGUMENTS = [
                           description='Robot namespace'),
     DeclareLaunchArgument('world_name', default_value='',
                           description='World name'),
-    DeclareLaunchArgument('can_interface', default_value='can0',
+    DeclareLaunchArgument('can_interface', default_value='can1',
                           description='CAN interface to use for hardware interfaces.'),
     
 ]

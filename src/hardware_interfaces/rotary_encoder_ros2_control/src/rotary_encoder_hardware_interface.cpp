@@ -75,7 +75,7 @@ hardware_interface::CallbackReturn RotaryEncoderHardwareInterface::on_init(
   }
 
   can_interface_ = info_.hardware_parameters.count("can_interface") ?
-    info_.hardware_parameters.at("can_interface") : "can0";
+    info_.hardware_parameters.at("can_interface") : "can1";
   update_rate_ = info_.hardware_parameters.count("update_rate") ?
     std::stoi(info_.hardware_parameters.at("update_rate")) : 10;
   logger_rate_ = info_.hardware_parameters.count("logger_rate") ?

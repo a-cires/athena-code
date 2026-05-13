@@ -63,7 +63,7 @@ hardware_interface::CallbackReturn PowerModuleHardwareInterface::on_init(
 
   // General HWI parameters
   can_interface_ = info_.hardware_parameters.count("can_interface") ?
-    info_.hardware_parameters.at("can_interface") : "can0";
+    info_.hardware_parameters.at("can_interface") : "can1";
   update_rate_ = info_.hardware_parameters.count("update_rate") ?
     std::stoi(info_.hardware_parameters.at("update_rate")) : 5;
   logger_rate_ = info_.hardware_parameters.count("logger_rate") ?

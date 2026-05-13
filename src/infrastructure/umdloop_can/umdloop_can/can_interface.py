@@ -1,7 +1,7 @@
 import can
 
 class CANInterface:
-    def __init__(self, callback=None, channel='can0', bustype='socketcan', bitrate=1000000):
+    def __init__(self, callback=None, channel='can1', bustype='socketcan', bitrate=1000000):
         self.bus = can.interface.Bus(channel=channel, bustype=bustype, bitrate=bitrate)
         self.callback = callback
         self.notifier = None
